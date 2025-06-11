@@ -1,34 +1,27 @@
-# This config was automatically generated from your source code
-# Stacks detected: deps:python:.
 version: 2.1
-orbs:
-  python: circleci/python@2
-jobs:
-  test-python:
-    # Install dependencies and run tests
+
+executors:
+  python-executor:
     docker:
-      - image: cimg/python:3.8-node
+      - image: cimg/python:3.12
+
+jobs:
+  test:
+    executor: python-executor
     steps:
       - checkout
-      - python/install-packages
+      - run:
+          name: Install dependencies
+          command: |
+            python -m pip install --upgrade pip
+            pip install -r requirements.txt
       - run:
           name: Run tests
-          command: pytest --junitxml=junit.xml || ((($? == 5)) && echo 'Did not find any tests to run.')
-      - store_test_results:
-          path: junit.xml
-  deploy:
-    # This is an example deploy job, not actually used by the workflow
-    docker:
-      - image: cimg/base:stable
-    steps:
-      # Replace this with steps to deploy to users
-      - run:
-          name: deploy
-          command: '#e.g. ./deploy.sh'
+          command: |
+            pytest --maxfail=1 --disable-warnings -v
+
 workflows:
-  build-and-test:
+  version: 2
+  test-and-deploy:
     jobs:
-      - test-python
-    # - deploy:
-    #     requires:
-    #       - test-python
+      - test
