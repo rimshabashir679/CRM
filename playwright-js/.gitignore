@@ -1,0 +1,12 @@
+node_modules/
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+screenshots/*.png
+!screenshots/.gitkeep
+logs/*.log
+!logs/.gitkeep
+.env
+*.log
+.DS_Store

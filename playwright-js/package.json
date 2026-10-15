@@ -1,0 +1,30 @@
+{
+  "name": "crm-playwright-js",
+  "version": "1.0.0",
+  "description": "Playwright JavaScript automation framework for Profolio CRM (converted from Selenium Python)",
+  "main": "index.js",
+  "scripts": {
+    "test": "npx playwright test",
+    "test:smoke": "npx playwright test tests/smoke.spec.js",
+    "test:headed": "HEADED=true npx playwright test --headed",
+    "test:login": "HEADED=true npx playwright test tests/login.spec.js --headed",
+    "test:internal-users": "HEADED=true npx playwright test tests/internalUsers.spec.js --headed",
+    "test:debug": "npx playwright test --debug",
+    "test:report": "npx playwright show-report",
+    "auth:save": "node scripts/save-auth.js",
+    "install:browsers": "npx playwright install chromium"
+  },
+  "keywords": [
+    "playwright",
+    "javascript",
+    "crm",
+    "automation",
+    "e2e"
+  ],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@playwright/test": "^1.49.0",
+    "dotenv": "^16.4.5"
+  }
+}
