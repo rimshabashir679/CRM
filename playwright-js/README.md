@@ -39,23 +39,34 @@ cp .env.example .env
 # Edit .env — use a @dubizzlegroup.com Google Workspace account for SSO
 ```
 
+## Bypass Google SSO (recommended)
+
+Google blocks automated password entry. Do this **once**:
+
+```bash
+# 1) Opens Chrome — log in manually to Google + CRM
+npm run auth:save
+# When the CRM app is open, press Enter in the terminal
+
+# 2) Later runs reuse auth/user.json and skip Google
+npm run test:bypass
+npm run test:bypass:headed
+```
+
+If the session expires, run `npm run auth:save` again.
+
 ## Run tests
 
 ```bash
 # Smoke only (no full Google login required)
 npm run test:smoke
 
-# All tests (headless)
-npm test
+# With saved session (bypasses Google)
+npm run test:bypass
 
-# Headed — recommended for Google SSO on your laptop
+# Without saved session (will hit Google SSO)
 npm run test:headed
 npm run test:login
-npm run test:internal-users
-
-# Save login cookies once, then reuse for headless runs
-npm run auth:save
-STORAGE_STATE=auth/user.json npm test
 
 # HTML report
 npm run test:report

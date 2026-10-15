@@ -5,12 +5,19 @@ const fs = require('fs');
 require('dotenv').config({ path: path.resolve(__dirname, '.env') });
 
 const config = require('./Configurations/config');
+const { getStorageStatePath } = require('./utils/auth');
 
-const storageStatePath = process.env.STORAGE_STATE
-  ? path.resolve(__dirname, process.env.STORAGE_STATE)
-  : path.resolve(__dirname, 'auth', 'user.json');
-
+const storageStatePath = getStorageStatePath();
 const useStorageState = fs.existsSync(storageStatePath);
+const bypass = process.env.BYPASS_GOOGLE === 'true' || useStorageState;
+
+if (bypass && useStorageState) {
+  console.log(`[playwright] Using saved session → ${storageStatePath} (Google SSO bypassed)`);
+} else if (process.env.BYPASS_GOOGLE === 'true' && !useStorageState) {
+  console.warn(
+    '[playwright] BYPASS_GOOGLE=true but auth/user.json is missing. Run: npm run auth:save'
+  );
+}
 
 /**
  * Playwright config mirroring the Selenium Python CRM project.
@@ -51,7 +58,11 @@ module.exports = defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      use: {
+        ...devices['Desktop Chrome'],
+        // Use real Chrome when available (better for one-time Google login)
+        ...(process.env.USE_CHROME === 'true' ? { channel: 'chrome' } : {}),
+      },
     },
   ],
   outputDir: 'test-results',

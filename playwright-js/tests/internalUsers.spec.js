@@ -4,6 +4,7 @@ const fs = require('fs');
 const { LoginPage } = require('../page-objects/LoginPage');
 const { InternalUsers } = require('../page-objects/InternalUsers');
 const { ReadConfig } = require('../utils/readConfig');
+const { hasSavedSession, isAlreadyLoggedIn } = require('../utils/auth');
 const logger = require('../utils/logger');
 
 const screenshotsDir = path.resolve(__dirname, '..', 'screenshots');
@@ -13,11 +14,16 @@ if (!fs.existsSync(screenshotsDir)) {
 
 /**
  * Port of TestCases/test_internalUsers.py — Test_02_InternalUsers
+ *
+ * Bypass Google SSO:
+ *   npm run auth:save
+ *   npm run test:bypass
  */
 test.describe('Test_02_InternalUsers', () => {
   const url = ReadConfig.getURL();
   const email = ReadConfig.getEmail();
   const password = ReadConfig.getPassword();
+  const appUrl = url.replace(/\/login\/?$/, '');
 
   test('test_internal_users — login then add internal user form flow', async ({
     page,
@@ -25,25 +31,34 @@ test.describe('Test_02_InternalUsers', () => {
     logger.info('********* TestCase_01_Login *********');
 
     const lp = new LoginPage(page);
-    await lp.goto(url);
 
-    try {
-      await lp.login(email, password);
-    } catch (err) {
-      if (String(err.message).includes('Google blocked')) {
-        testInfo.skip(
-          true,
-          'Google blocked automated browser — run headed locally or use storage state'
-        );
+    if (hasSavedSession()) {
+      logger.info('********* Using saved session — bypassing Google SSO *********');
+      await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
+      if (!(await isAlreadyLoggedIn(page))) {
+        testInfo.skip(true, 'Saved session expired. Run: npm run auth:save');
         return;
       }
-      throw err;
+      logger.info('********* Verified Successful Login (session bypass) *********');
+    } else {
+      await lp.goto(url);
+      try {
+        await lp.login(email, password);
+      } catch (err) {
+        if (String(err.message).includes('Google blocked')) {
+          testInfo.skip(
+            true,
+            'Google blocked automation. Bypass it with: npm run auth:save && npm run test:bypass'
+          );
+          return;
+        }
+        throw err;
+      }
+      await expect(page).not.toHaveURL(/accounts\.google\.com/i, {
+        timeout: 60_000,
+      });
+      logger.info('********* Verified Successful Login *********');
     }
-
-    await expect(page).not.toHaveURL(/accounts\.google\.com/i, {
-      timeout: 60_000,
-    });
-    logger.info('********* Verified Successful Login *********');
 
     const iu = new InternalUsers(page);
     await iu.clickOnInternalUserMenuButton();

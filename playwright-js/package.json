@@ -9,6 +9,8 @@
     "test:headed": "HEADED=true npx playwright test --headed",
     "test:login": "HEADED=true npx playwright test tests/login.spec.js --headed",
     "test:internal-users": "HEADED=true npx playwright test tests/internalUsers.spec.js --headed",
+    "test:bypass": "BYPASS_GOOGLE=true npx playwright test",
+    "test:bypass:headed": "BYPASS_GOOGLE=true HEADED=true npx playwright test --headed",
     "test:debug": "npx playwright test --debug",
     "test:report": "npx playwright show-report",
     "auth:save": "node scripts/save-auth.js",
