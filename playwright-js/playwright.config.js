@@ -1,27 +1,14 @@
 // @ts-check
 const { defineConfig, devices } = require('@playwright/test');
 const path = require('path');
-const fs = require('fs');
 require('dotenv').config({ path: path.resolve(__dirname, '.env') });
 
 const config = require('./Configurations/config');
-const { getStorageStatePath } = require('./utils/auth');
-
-const storageStatePath = getStorageStatePath();
-const useStorageState = fs.existsSync(storageStatePath);
-const bypass = process.env.BYPASS_GOOGLE === 'true' || useStorageState;
-
-if (bypass && useStorageState) {
-  console.log(`[playwright] Using saved session → ${storageStatePath} (Google SSO bypassed)`);
-} else if (process.env.BYPASS_GOOGLE === 'true' && !useStorageState) {
-  console.warn(
-    '[playwright] BYPASS_GOOGLE=true but auth/user.json is missing. Run: npm run auth:save'
-  );
-}
 
 /**
- * Playwright config mirroring the Selenium Python CRM project.
- * @see https://playwright.dev/docs/test-configuration
+ * Playwright config — CF Access headers are applied via CDP in utils/setup.js
+ * (same approach as TestCases/conftest.py), not only via Playwright's
+ * extraHTTPHeaders, so behavior matches Selenium.
  */
 module.exports = defineConfig({
   testDir: './tests',
@@ -38,31 +25,27 @@ module.exports = defineConfig({
     ['html', { open: 'never', outputFolder: 'playwright-report' }],
   ],
   use: {
-    baseURL: config.baseURL.replace(/\/login\/?$/, ''),
+    baseURL: config.appURL,
     headless: process.env.HEADED === 'true' ? false : true,
-    viewport: { width: 1366, height: 768 },
+    viewport: null, // allow maximized-like behavior
     actionTimeout: 20_000,
     navigationTimeout: 45_000,
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
     trace: 'on-first-retry',
-    ...(useStorageState ? { storageState: storageStatePath } : {}),
+    // Also set at context level (backup); primary path is CDP in setup()
     extraHTTPHeaders: {
       'CF-Access-Client-Id': config.cfAccessClientId,
       'CF-Access-Client-Secret': config.cfAccessClientSecret,
     },
     launchOptions: {
-      args: ['--disable-blink-features=AutomationControlled'],
+      args: ['--start-maximized', '--disable-blink-features=AutomationControlled'],
     },
   },
   projects: [
     {
       name: 'chromium',
-      use: {
-        ...devices['Desktop Chrome'],
-        // Use real Chrome when available (better for one-time Google login)
-        ...(process.env.USE_CHROME === 'true' ? { channel: 'chrome' } : {}),
-      },
+      use: { ...devices['Desktop Chrome'] },
     },
   ],
   outputDir: 'test-results',

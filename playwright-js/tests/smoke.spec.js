@@ -1,35 +1,36 @@
 const { test, expect } = require('@playwright/test');
-const { ReadConfig } = require('../utils/readConfig');
+const { setup } = require('../utils/setup');
 const logger = require('../utils/logger');
 
 /**
- * Lightweight checks that do not require completing Google SSO.
- * Useful in CI and when Google blocks automated browsers.
+ * Verifies conftest-style CDP CF-Access headers land on CRM login
+ * (not Google SSO).
  */
-test.describe('Smoke — CRM login entry', () => {
-  test('login URL is reachable and shows Google SSO or CRM form', async ({
+test.describe('Smoke — CF Access bypass (conftest.py style)', () => {
+  test('sales-companion opens CRM login instead of Google SSO', async ({
     page,
+    context,
   }) => {
-    logger.info('********* Smoke: open login URL *********');
-    const url = ReadConfig.getURL();
-    const response = await page.goto(url, { waitUntil: 'domcontentloaded' });
+    logger.info('********* Smoke: CDP CF-Access setup (like conftest.py) *********');
+    await setup(page, context);
 
-    expect(response, 'navigation should return a response').toBeTruthy();
-    expect(response.status()).toBeLessThan(500);
+    const url = page.url();
+    logger.info(`Landed on: ${url}`);
 
-    // Either redirected to Google SSO or still on the CRM login page
-    const onGoogle = /accounts\.google\.com/i.test(page.url());
-    const onCrm = /profolio\.ae/i.test(page.url());
-    expect(onGoogle || onCrm).toBeTruthy();
+    expect(url).not.toMatch(/accounts\.google\.com/i);
+    expect(url).toMatch(/profolio\.ae/i);
 
-    if (onGoogle) {
-      await expect(page.getByText(/Sign in/i).first()).toBeVisible();
-      await expect(
-        page.getByRole('textbox', { name: /email/i })
-      ).toBeVisible();
-      logger.info('********* Smoke: Google SSO challenge visible *********');
-    } else {
-      logger.info('********* Smoke: CRM login page loaded *********');
-    }
+    // Native CRM login fields should be present (same as Selenium LoginPage)
+    const email = page
+      .locator(
+        'input[type="email"], input[type="text"], input[name*="email" i]'
+      )
+      .first();
+    const password = page.locator('input[type="password"]').first();
+
+    await expect(email).toBeVisible({ timeout: 20_000 });
+    await expect(password).toBeVisible({ timeout: 20_000 });
+
+    logger.info('********* Smoke: CRM login page loaded (Google SSO bypassed) *********');
   });
 });
