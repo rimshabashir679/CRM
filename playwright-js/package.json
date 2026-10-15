@@ -14,6 +14,8 @@
     "test:debug": "npx playwright test --debug",
     "test:report": "npx playwright show-report",
     "auth:save": "node scripts/save-auth.js",
+    "debug:landing": "node scripts/debug-landing.js",
+    "debug:landing:headed": "HEADED=true node scripts/debug-landing.js",
     "install:browsers": "npx playwright install chromium"
   },
   "keywords": [

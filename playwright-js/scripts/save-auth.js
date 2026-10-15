@@ -1,14 +1,8 @@
 /**
- * Bypass Google SSO for later test runs:
- * 1) Opens a real Chrome window
- * 2) You log in manually (Google + CRM)
- * 3) Saves cookies/session to auth/user.json
+ * Save a Chrome session that already passed Cloudflare Access + CRM login.
+ * Later tests reuse this profile / storage state and skip Google SSO.
  *
- * Usage:
  *   npm run auth:save
- *
- * Then run tests (they will skip Google automatically):
- *   npm run test:bypass
  */
 const { chromium } = require('@playwright/test');
 const path = require('path');
@@ -17,65 +11,60 @@ const config = require('../Configurations/config');
 
 (async () => {
   const authDir = path.resolve(__dirname, '..', 'auth');
-  fs.mkdirSync(authDir, { recursive: true });
-  const outFile = path.join(authDir, 'user.json');
+  const profileDir = path.join(authDir, 'chrome-profile');
+  const storageFile = path.join(authDir, 'user.json');
+  fs.mkdirSync(profileDir, { recursive: true });
 
-  // Prefer installed Google Chrome — Google SSO accepts it more reliably
-  let browser;
+  const appUrl =
+    process.env.APP_URL || 'https://neo.staging.profolio.ae/sales-companion';
+
+  console.log('\n========================================');
+  console.log(' Manual login — bypass Google for tests');
+  console.log('========================================');
+  console.log('1. Chrome will open');
+  console.log('2. Complete Google / CF Access / CRM login yourself');
+  console.log('3. When you see the CRM app, return here and press Enter\n');
+
+  let context;
   try {
-    browser = await chromium.launch({
+    context = await chromium.launchPersistentContext(profileDir, {
       headless: false,
       channel: 'chrome',
-      args: ['--disable-blink-features=AutomationControlled'],
+      args: ['--start-maximized'],
+      ignoreHTTPSErrors: true,
+      extraHTTPHeaders: {
+        'CF-Access-Client-Id': config.cfAccessClientId,
+        'CF-Access-Client-Secret': config.cfAccessClientSecret,
+      },
     });
   } catch {
-    browser = await chromium.launch({
+    context = await chromium.launchPersistentContext(profileDir, {
       headless: false,
-      args: ['--disable-blink-features=AutomationControlled'],
+      args: ['--start-maximized'],
+      ignoreHTTPSErrors: true,
+      extraHTTPHeaders: {
+        'CF-Access-Client-Id': config.cfAccessClientId,
+        'CF-Access-Client-Secret': config.cfAccessClientSecret,
+      },
     });
   }
 
-  const context = await browser.newContext({
-    extraHTTPHeaders: {
-      'CF-Access-Client-Id': config.cfAccessClientId,
-      'CF-Access-Client-Secret': config.cfAccessClientSecret,
-    },
-  });
-  const page = await context.newPage();
-
-  // Land on app root (same as Python conftest), not /login
-  const appUrl = config.baseURL.replace(/\/login\/?$/, '');
+  const page = context.pages()[0] || (await context.newPage());
   await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
-
-  console.log('\n========================================');
-  console.log(' BYPASS SETUP — log in once manually');
-  console.log('========================================');
-  console.log('1. Complete Google SSO in the browser window');
-  console.log('2. Wait until you see the CRM / Sales Companion app');
-  console.log('3. Come back here and press Enter to save the session\n');
 
   await new Promise((resolve) => {
     process.stdin.resume();
     process.stdin.once('data', resolve);
   });
 
-  // Prefer saving once we are back on the CRM domain
-  const url = page.url();
-  if (!/profolio\.ae/i.test(url)) {
-    console.warn(
-      `\nWarning: current URL is still:\n  ${url}\n` +
-        'Session may not include CRM cookies. Prefer saving after the CRM loads.\n'
-    );
-  }
-
-  await context.storageState({ path: outFile });
-  console.log(`\nSaved session → ${outFile}`);
-  console.log('Google will be bypassed on the next runs.\n');
-  console.log('Run tests with:');
+  await context.storageState({ path: storageFile });
+  console.log(`\nSaved storage state → ${storageFile}`);
+  console.log(`Saved Chrome profile → ${profileDir}`);
+  console.log('\nRun tests with the saved session:');
   console.log('  npm run test:bypass');
   console.log('  npm run test:bypass:headed\n');
 
-  await browser.close();
+  await context.close();
   process.exit(0);
 })().catch((err) => {
   console.error(err);

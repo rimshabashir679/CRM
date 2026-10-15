@@ -1,38 +1,74 @@
+const fs = require('fs');
+const path = require('path');
 const config = require('../Configurations/config');
+const { getStorageStatePath, hasSavedSession } = require('./auth');
+
+const CF_HEADERS = {
+  'CF-Access-Client-Id': config.cfAccessClientId,
+  'CF-Access-Client-Secret': config.cfAccessClientSecret,
+};
+
+const APP_URL =
+  process.env.APP_URL || 'https://neo.staging.profolio.ae/sales-companion';
 
 /**
- * Playwright equivalent of TestCases/conftest.py → setup()
+ * Playwright port of TestCases/conftest.py → setup()
  *
- * Selenium does:
- *   driver.execute_cdp_cmd("Network.enable", {})
- *   driver.execute_cdp_cmd("Network.setExtraHTTPHeaders", { headers })
- *   driver.get("https://neo.staging.profolio.ae/sales-companion")
+ * 1) If auth/user.json exists → reuse it (skips Google)
+ * 2) Else apply CF Access headers (CDP + route + context) like Selenium
  *
- * Same flow here via CDP so Cloudflare Access service-token headers
- * land you on the CRM login page instead of Google SSO.
- *
- * @param {import('@playwright/test').Page} page
- * @param {import('@playwright/test').BrowserContext} context
- * @returns {Promise<import('@playwright/test').Page>}
+ * @param {import('@playwright/test').Browser} browser
  */
-async function setup(page, context) {
-  const headers = {
-    'CF-Access-Client-Id': config.cfAccessClientId,
-    'CF-Access-Client-Secret': config.cfAccessClientSecret,
-  };
+async function setup(browser) {
+  const storageState = hasSavedSession() ? getStorageStatePath() : undefined;
+  if (storageState) {
+    console.log(`[setup] Using saved session → ${storageState}`);
+  }
 
-  // Mirror Selenium CDP injection
-  const client = await context.newCDPSession(page);
-  await client.send('Network.enable');
-  await client.send('Network.setExtraHTTPHeaders', { headers });
+  const context = await browser.newContext({
+    extraHTTPHeaders: CF_HEADERS,
+    viewport: null,
+    ...(storageState ? { storageState } : {}),
+  });
 
-  // Same URL as conftest.py (NOT /login)
-  const appUrl =
-    process.env.APP_URL ||
-    'https://neo.staging.profolio.ae/sales-companion';
+  // Force CF headers on every request (Playwright can ignore CDP-only headers)
+  await context.route('**/*', async (route) => {
+    const headers = {
+      ...route.request().headers(),
+      ...CF_HEADERS,
+    };
+    await route.continue({ headers });
+  });
 
-  await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
-  return page;
+  const page = await context.newPage();
+
+  // Same CDP calls as Selenium conftest.py
+  try {
+    const client = await context.newCDPSession(page);
+    await client.send('Network.enable');
+    await client.send('Network.setExtraHTTPHeaders', { headers: CF_HEADERS });
+  } catch (err) {
+    console.warn('[setup] CDP headers skipped:', err.message);
+  }
+
+  const response = await page.goto(APP_URL, {
+    waitUntil: 'domcontentloaded',
+    timeout: 45_000,
+  });
+
+  console.log(
+    `[setup] status=${response ? response.status() : 'n/a'} url=${page.url()}`
+  );
+
+  if (/accounts\.google\.com/i.test(page.url())) {
+    console.warn(
+      '\n[setup] Landed on Google SSO — CF Access service token was NOT accepted.\n' +
+        '        The tokens in conftest.py currently return service_token_status=false.\n' +
+        '        Bypass:  npm run auth:save   then   npm run test:bypass\n'
+    );
+  }
+
+  return { context, page };
 }
 
-module.exports = { setup };
+module.exports = { setup, CF_HEADERS, APP_URL };

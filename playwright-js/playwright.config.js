@@ -6,12 +6,12 @@ require('dotenv').config({ path: path.resolve(__dirname, '.env') });
 const config = require('./Configurations/config');
 
 /**
- * Playwright config — CF Access headers are applied via CDP in utils/setup.js
- * (same approach as TestCases/conftest.py), not only via Playwright's
- * extraHTTPHeaders, so behavior matches Selenium.
+ * CF Access headers are applied in utils/setup.js (context + route + CDP),
+ * matching TestCases/conftest.py order. Prefer real Chrome like Selenium.
  */
 module.exports = defineConfig({
   testDir: './tests',
+  testMatch: /.*\.spec\.js/,
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
@@ -27,13 +27,11 @@ module.exports = defineConfig({
   use: {
     baseURL: config.appURL,
     headless: process.env.HEADED === 'true' ? false : true,
-    viewport: null, // allow maximized-like behavior
     actionTimeout: 20_000,
     navigationTimeout: 45_000,
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
     trace: 'on-first-retry',
-    // Also set at context level (backup); primary path is CDP in setup()
     extraHTTPHeaders: {
       'CF-Access-Client-Id': config.cfAccessClientId,
       'CF-Access-Client-Secret': config.cfAccessClientSecret,
@@ -44,8 +42,14 @@ module.exports = defineConfig({
   },
   projects: [
     {
-      name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      // Prefer real Chrome (like Selenium). Override with: PW_CHANNEL=chromium npm test
+      name: process.env.PW_CHANNEL === 'chromium' ? 'chromium' : 'chrome',
+      use: {
+        ...devices['Desktop Chrome'],
+        ...(process.env.PW_CHANNEL === 'chromium'
+          ? {}
+          : { channel: 'chrome' }),
+      },
     },
   ],
   outputDir: 'test-results',
