@@ -1,23 +1,25 @@
 # Bypass Google SSO
 
-The CF Access tokens in `conftest.py` are **rejected** by Cloudflare, so headers alone still open Google.
+## If Google "Next" does nothing
 
-## One-time fix (recommended)
-
-```bash
-npm run bypass:google
-```
-
-1. Chrome opens  
-2. Complete **Google** sign-in  
-3. Stop when you see the **CRM login form** (email + password)  
-4. Do **not** sign into CRM — the script saves automatically  
-
-Then run tests — they open the CRM login page (no Google):
+Playwright Chrome often breaks Google login. Use your **real** Chrome:
 
 ```bash
-npm run test:headed
-npm run test:login
+npm run bypass:google:system
 ```
 
-Saved files (gitignored): `user.json`, `chrome-profile/`
+## Email tip (`hd=dubizzlegroup.com`)
+
+The Google screen locks the domain to `@dubizzlegroup.com`.
+
+- Type **only** your username, e.g. `rimsha.bashir`
+- Do **not** type `@dubizzlelabs.com` or another domain
+- Then click **Next**, enter password, continue
+
+## Steps
+
+1. `npm run bypass:google:system`
+2. Finish Google in Chrome
+3. Stop at the **CRM login form** (do not sign into CRM)
+4. Press **Enter** in Terminal
+5. `npm run test:headed`

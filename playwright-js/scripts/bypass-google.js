@@ -1,17 +1,16 @@
 /**
- * One-time Google SSO bypass → land on CRM login page afterward.
+ * One-time Google SSO bypass → save session at CRM login page.
  *
  *   npm run bypass:google
  *
- * 1. Chrome opens (Google SSO may appear — that is expected)
- * 2. YOU complete Google login in the browser window
- * 3. When the CRM login form appears (email + password), press Enter here
- *    (or the script auto-detects and saves)
+ * Uses real Chrome with automation flags removed so Google "Next" works.
+ * If it still fails, use: npm run bypass:google:system
  */
 const { chromium } = require('@playwright/test');
 const path = require('path');
 const fs = require('fs');
 const readline = require('readline');
+const { execSync, spawn } = require('child_process');
 const config = require('../Configurations/config');
 
 const APP_URL =
@@ -32,12 +31,8 @@ function askEnter(prompt) {
 
 async function looksLikeCrmLogin(page) {
   const url = page.url();
-  if (/accounts\.google\.com|cloudflareaccess\.com/i.test(url)) {
-    return false;
-  }
-  if (!/profolio\.ae/i.test(url)) {
-    return false;
-  }
+  if (/accounts\.google\.com|cloudflareaccess\.com/i.test(url)) return false;
+  if (!/profolio\.ae/i.test(url)) return false;
   const password = page.locator(
     'input[type="password"]:not([aria-hidden="true"])'
   );
@@ -51,7 +46,120 @@ async function looksLikeCrmLogin(page) {
   }
 }
 
+async function saveAndExit(context, storageFile, profileDir) {
+  const pages = context.pages();
+  const page = pages[0] || (await context.newPage());
+  const url = page.url();
+  console.log('\nFinal URL:', url);
+
+  if (/accounts\.google\.com/i.test(url)) {
+    console.error(
+      '\nStill on Google. Finish sign-in until you see neo.staging.profolio.ae\n'
+    );
+    await context.close().catch(() => {});
+    process.exit(1);
+  }
+  if (!/profolio\.ae/i.test(url)) {
+    console.error('\nNot on CRM yet. Finish login, then press Enter again.\n');
+    await context.close().catch(() => {});
+    process.exit(1);
+  }
+
+  await context.storageState({ path: storageFile });
+  console.log(`\n✓ Saved session → ${storageFile}`);
+  if (profileDir) console.log(`✓ Chrome profile → ${profileDir}`);
+  console.log('\nRun tests (should open CRM login, not Google):');
+  console.log('  npm run test:headed');
+  console.log('  npm run test:login\n');
+  await context.close().catch(() => {});
+}
+
+async function launchPlaywrightChrome(profileDir) {
+  // Critical: strip flags that break Google's Next button
+  const launchOpts = {
+    headless: false,
+    channel: 'chrome',
+    viewport: null,
+    ignoreHTTPSErrors: true,
+    // Remove Playwright defaults that Google blocks
+    ignoreDefaultArgs: [
+      '--enable-automation',
+      '--no-sandbox',
+      '--disable-extensions',
+    ],
+    args: [
+      '--disable-blink-features=AutomationControlled',
+      '--start-maximized',
+    ],
+    extraHTTPHeaders: {
+      'CF-Access-Client-Id': config.cfAccessClientId,
+      'CF-Access-Client-Secret': config.cfAccessClientSecret,
+    },
+  };
+
+  try {
+    return await chromium.launchPersistentContext(profileDir, launchOpts);
+  } catch {
+    // Fallback without channel
+    const { channel, ...rest } = launchOpts;
+    return await chromium.launchPersistentContext(profileDir, rest);
+  }
+}
+
+/**
+ * Open the user's real Google Chrome (not Playwright-controlled).
+ * Google login works normally. Then connect via CDP and save cookies.
+ */
+async function launchSystemChromeAndConnect(profileDir) {
+  const port = 9222;
+  const chromePath =
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+
+  if (!fs.existsSync(chromePath)) {
+    throw new Error('Google Chrome not found at ' + chromePath);
+  }
+
+  // Kill anything already on 9222 (best-effort)
+  try {
+    execSync(`lsof -ti:${port} | xargs kill -9`, { stdio: 'ignore' });
+  } catch {
+    /* ignore */
+  }
+
+  console.log('Opening your real Google Chrome (not Playwright)...');
+  const child = spawn(
+    chromePath,
+    [
+      `--remote-debugging-port=${port}`,
+      `--user-data-dir=${profileDir}`,
+      '--no-first-run',
+      '--no-default-browser-check',
+      APP_URL,
+    ],
+    { detached: true, stdio: 'ignore' }
+  );
+  child.unref();
+
+  // Wait for CDP
+  let browser;
+  for (let i = 0; i < 30; i++) {
+    try {
+      browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+      break;
+    } catch {
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
+  if (!browser) {
+    throw new Error('Could not connect to Chrome on port 9222');
+  }
+
+  const context = browser.contexts()[0] || (await browser.newContext());
+  return { browser, context };
+}
+
 async function main() {
+  const mode = process.argv.includes('--system') ? 'system' : 'playwright';
   const authDir = path.resolve(__dirname, '..', 'auth');
   const profileDir = path.join(authDir, 'chrome-profile');
   const storageFile = path.join(authDir, 'user.json');
@@ -60,57 +168,55 @@ async function main() {
   console.log('\n=============================================');
   console.log(' Bypass Google SSO → CRM login page');
   console.log('=============================================');
-  console.log('Google will likely open first — that is normal.');
+  console.log('Mode:', mode === 'system' ? 'real Chrome (recommended)' : 'Playwright Chrome');
   console.log('');
-  console.log('In the Chrome window:');
-  console.log('  1. Sign in with your @dubizzlegroup.com Google account');
-  console.log('  2. Wait until you see the CRM login form');
-  console.log('     (email + password on neo.staging.profolio.ae)');
-  console.log('  3. Do NOT click Sign in on the CRM form');
-  console.log('  4. Come back here and press Enter\n');
+  console.log('IMPORTANT for Google email field:');
+  console.log('  • Domain is locked to @dubizzlegroup.com');
+  console.log('  • Type ONLY your username (e.g. rimsha.bashir)');
+  console.log('  • Do NOT type @dubizzlelabs.com or full email with another domain');
+  console.log('');
+  console.log('Steps:');
+  console.log('  1. Enter username → click Next');
+  console.log('  2. Enter password → continue');
+  console.log('  3. Stop at CRM login form (email + password)');
+  console.log('  4. Come here and press Enter\n');
 
   let context;
-  const launchOpts = {
-    headless: false,
-    args: ['--start-maximized'],
-    ignoreHTTPSErrors: true,
-    viewport: null,
-    extraHTTPHeaders: {
-      'CF-Access-Client-Id': config.cfAccessClientId,
-      'CF-Access-Client-Secret': config.cfAccessClientSecret,
-    },
-  };
+  let browser;
 
-  try {
-    context = await chromium.launchPersistentContext(profileDir, {
-      ...launchOpts,
-      channel: 'chrome',
-    });
-  } catch {
-    context = await chromium.launchPersistentContext(profileDir, launchOpts);
+  if (mode === 'system') {
+    const connected = await launchSystemChromeAndConnect(profileDir);
+    browser = connected.browser;
+    context = connected.context;
+  } else {
+    context = await launchPlaywrightChrome(profileDir);
+    const page = context.pages()[0] || (await context.newPage());
+    await page.goto(APP_URL, { waitUntil: 'domcontentloaded' }).catch(() => {});
+    console.log('Current URL:', page.url());
   }
 
-  const page = context.pages()[0] || (await context.newPage());
-  await page.goto(APP_URL, { waitUntil: 'domcontentloaded' }).catch(() => {});
+  console.log('\n>>> Finish Google login in Chrome, then press Enter <<<\n');
 
-  console.log('Current URL:', page.url());
-  console.log('\n>>> Complete Google login in Chrome, then press Enter here <<<\n');
-
-  // Poll in background and print status; user can press Enter anytime
   let stopPoll = false;
+  const page = () => context.pages()[0];
+
   const poll = (async () => {
     while (!stopPoll) {
-      const url = page.url();
-      const ok = await looksLikeCrmLogin(page);
-      if (ok) {
-        console.log('\n✓ CRM login form detected at:', url);
-        console.log('  Press Enter to save (or wait a moment)...\n');
+      const p = page();
+      if (!p) {
+        await new Promise((r) => setTimeout(r, 1000));
+        continue;
+      }
+      if (await looksLikeCrmLogin(p)) {
+        console.log('\n✓ CRM login form detected:', p.url());
         return true;
       }
-      process.stdout.write(
-        `\rStill waiting... ${url.slice(0, 80).replace(/\n/g, '')}   `
-      );
-      await page.waitForTimeout(2000);
+      try {
+        process.stdout.write(`\rWaiting... ${p.url().slice(0, 70)}   `);
+      } catch {
+        /* ignore */
+      }
+      await new Promise((r) => setTimeout(r, 2000));
     }
     return false;
   })();
@@ -121,41 +227,13 @@ async function main() {
   ]);
   stopPoll = true;
 
-  // Small settle time
-  await page.waitForTimeout(1000);
-
-  const url = page.url();
-  console.log('\nFinal URL:', url);
-
-  if (/accounts\.google\.com/i.test(url)) {
-    console.error(
-      '\nStill on Google SSO. You must finish Google login in the Chrome window first.\n' +
-        'Run again:  npm run bypass:google\n'
-    );
-    await context.close();
-    process.exit(1);
-  }
-
-  if (!/profolio\.ae/i.test(url)) {
-    console.error(
-      '\nNot on the CRM site yet. Finish login until you see neo.staging.profolio.ae,\n' +
-        'then run:  npm run bypass:google\n'
-    );
-    await context.close();
-    process.exit(1);
-  }
-
-  await context.storageState({ path: storageFile });
-  console.log(`\n✓ Saved session → ${storageFile}`);
-  console.log(`✓ Chrome profile → ${profileDir}`);
-  console.log('\nGoogle bypassed. Run tests (should open CRM login, not Google):');
-  console.log('  npm run test:headed');
-  console.log('  npm run test:login\n');
-
-  await context.close();
+  await saveAndExit(context, storageFile, profileDir);
+  if (browser) await browser.close().catch(() => {});
 }
 
 main().catch((err) => {
-  console.error(err);
+  console.error('\nError:', err.message);
+  console.error('\nTry the system Chrome mode instead:');
+  console.error('  npm run bypass:google:system\n');
   process.exit(1);
 });
