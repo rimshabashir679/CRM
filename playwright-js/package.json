@@ -13,6 +13,7 @@
     "test:bypass:headed": "BYPASS_GOOGLE=true HEADED=true npx playwright test --headed",
     "test:debug": "npx playwright test --debug",
     "test:report": "npx playwright show-report",
+    "bypass:google": "node scripts/bypass-google.js",
     "auth:save": "node scripts/save-auth.js",
     "debug:landing": "node scripts/debug-landing.js",
     "debug:landing:headed": "HEADED=true node scripts/debug-landing.js",

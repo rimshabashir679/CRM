@@ -1,19 +1,23 @@
-# Saved auth (gitignored)
+# Bypass Google SSO
 
-Run once on your machine:
+The CF Access tokens in `conftest.py` are **rejected** by Cloudflare, so headers alone still open Google.
 
-```bash
-npm run auth:save
-```
-
-Log in manually in the Chrome window. Press Enter in the terminal when the CRM app is open.
-
-This creates:
-- `user.json` — Playwright storage state
-- `chrome-profile/` — persistent Chrome profile
-
-Then:
+## One-time fix (recommended)
 
 ```bash
-npm run test:bypass
+npm run bypass:google
 ```
+
+1. Chrome opens  
+2. Complete **Google** sign-in  
+3. Stop when you see the **CRM login form** (email + password)  
+4. Do **not** sign into CRM — the script saves automatically  
+
+Then run tests — they open the CRM login page (no Google):
+
+```bash
+npm run test:headed
+npm run test:login
+```
+
+Saved files (gitignored): `user.json`, `chrome-profile/`

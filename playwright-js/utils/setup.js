@@ -12,17 +12,25 @@ const APP_URL =
   process.env.APP_URL || 'https://neo.staging.profolio.ae/sales-companion';
 
 /**
- * Playwright port of TestCases/conftest.py → setup()
+ * Open the CRM app past Google SSO.
  *
- * 1) If auth/user.json exists → reuse it (skips Google)
- * 2) Else apply CF Access headers (CDP + route + context) like Selenium
+ * Priority:
+ *  1. Saved session from `npm run bypass:google` (auth/user.json)
+ *  2. CF_AUTHORIZATION cookie from env (.env)
+ *  3. CF Access service-token headers (same as Selenium conftest.py)
  *
  * @param {import('@playwright/test').Browser} browser
  */
 async function setup(browser) {
   const storageState = hasSavedSession() ? getStorageStatePath() : undefined;
+  const cfJwt = process.env.CF_AUTHORIZATION || '';
+
   if (storageState) {
-    console.log(`[setup] Using saved session → ${storageState}`);
+    console.log(`[setup] Using saved session (Google bypassed) → ${storageState}`);
+  } else if (cfJwt) {
+    console.log('[setup] Using CF_AUTHORIZATION cookie from env');
+  } else {
+    console.log('[setup] Using CF Access service-token headers (conftest style)');
   }
 
   const context = await browser.newContext({
@@ -31,7 +39,22 @@ async function setup(browser) {
     ...(storageState ? { storageState } : {}),
   });
 
-  // Force CF headers on every request (Playwright can ignore CDP-only headers)
+  // Optional: inject Cloudflare Access JWT cookie directly
+  if (cfJwt && !storageState) {
+    await context.addCookies([
+      {
+        name: 'CF_Authorization',
+        value: cfJwt,
+        domain: 'neo.staging.profolio.ae',
+        path: '/',
+        httpOnly: true,
+        secure: true,
+        sameSite: 'Lax',
+      },
+    ]);
+  }
+
+  // Force CF headers on every request
   await context.route('**/*', async (route) => {
     const headers = {
       ...route.request().headers(),
@@ -62,9 +85,11 @@ async function setup(browser) {
 
   if (/accounts\.google\.com/i.test(page.url())) {
     console.warn(
-      '\n[setup] Landed on Google SSO — CF Access service token was NOT accepted.\n' +
-        '        The tokens in conftest.py currently return service_token_status=false.\n' +
-        '        Bypass:  npm run auth:save   then   npm run test:bypass\n'
+      '\n[setup] Still on Google SSO.\n' +
+        '        CF service tokens in conftest.py are rejected by Cloudflare.\n' +
+        '        Fix (one time):\n' +
+        '          npm run bypass:google\n' +
+        '        Then re-run your tests — you should land on the CRM login page.\n'
     );
   }
 

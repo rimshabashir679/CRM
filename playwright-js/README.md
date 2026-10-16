@@ -39,46 +39,38 @@ cp .env.example .env
 # Edit .env — use a @dubizzlegroup.com Google Workspace account for SSO
 ```
 
-## How Google SSO is bypassed (same as your Selenium `conftest.py`)
+## Bypass Google SSO → land on CRM login page
 
-Playwright mirrors your Python setup:
+The CF Access tokens in `conftest.py` are **rejected** by Cloudflare
+(`service_token_status=false`), so headers alone still open Google.
 
-```js
-// utils/setup.js  ← same as TestCases/conftest.py
-const client = await context.newCDPSession(page);
-await client.send('Network.enable');
-await client.send('Network.setExtraHTTPHeaders', {
-  headers: {
-    'CF-Access-Client-Id': '...',
-    'CF-Access-Client-Secret': '...',
-  },
-});
-await page.goto('https://neo.staging.profolio.ae/sales-companion');
+**Do this once on your Mac:**
+
+```bash
+cd playwright-js
+npm run bypass:google
 ```
 
-That should land on the **CRM login form** (email/password), not Google SSO — same as Selenium.
+1. Chrome opens  
+2. Complete Google sign-in  
+3. Wait until the **CRM login form** appears (email + password)  
+4. Do **not** sign into CRM — script auto-saves  
+
+Then every test run skips Google and opens the CRM login page:
+
+```bash
+npm run test:headed
+npm run test:login
+```
 
 ## Run tests
 
 ```bash
-# Recommended on your Mac (visible browser)
 npm run test:headed
-
-# Or individual suites
 npm run test:login
 npm run test:internal-users
 npm run test:smoke
-
-# HTML report
 npm run test:report
-```
-
-### Optional: save session fallback
-If CF Access ever prompts Google on your machine:
-
-```bash
-npm run auth:save
-npm run test:bypass
 ```
 
 ## Project structure
