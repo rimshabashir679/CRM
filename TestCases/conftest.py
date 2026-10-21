@@ -7,6 +7,7 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
+import os
 import pytest
 import time
 
@@ -16,9 +17,16 @@ def setup():
     # google_email = "rimsha.bashir@dubizzlelabs.com"
     # google_password = "Rimsha1122!"
 
-    # Set Chrome options
+    # Set Chrome options. Headless + no-sandbox when there is no display
+    # (cloud agents and CI) so the same suite can run outside a desktop.
     chrome_options = Options()
     chrome_options.add_argument("--start-maximized")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    if not os.environ.get("DISPLAY") or os.environ.get("CRM_HEADLESS") == "1":
+        chrome_options.add_argument("--headless=new")
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-gpu")
+        chrome_options.add_argument("--window-size=1920,1080")
 
     # Initialize ChromeDriver
     service = Service(ChromeDriverManager().install())
@@ -36,6 +44,15 @@ def setup():
     
     
     driver.get("https://neo.staging.profolio.ae/sales-companion")
+    current = driver.current_url
+    if "accounts.google.com" in current or "cloudflareaccess.com" in current:
+        landing = current.split("?", 1)[0]
+        driver.quit()
+        raise RuntimeError(
+            "Browser reached Google SSO via Cloudflare Access "
+            f"({landing}). The CF Access service token was not accepted, "
+            "so the CRM login form is not available in this session."
+        )
     return driver
     
     
