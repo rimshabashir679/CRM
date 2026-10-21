@@ -1,7 +1,8 @@
 import configparser
+from pathlib import Path
 
 config = configparser.RawConfigParser()
-config.read(".\\Configurations\\config.ini")
+config.read(Path(__file__).resolve().parent.parent / "Configurations" / "config.ini")
 
 class ReadConfig():
     @staticmethod
